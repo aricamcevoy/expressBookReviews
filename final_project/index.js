@@ -8,10 +8,30 @@ const app = express();
 
 app.use(express.json());
 
-app.use("/customer",session({secret:"fingerprint_customer",resave: true, saveUninitialized: true}))
+app.use("/customer", session({
+    secret: "fingerprint_customer",
+    resave: true, 
+    saveUninitialized: true
+}));
 
-app.use("/customer/auth/*", function auth(req,res,next){
-//Write the authenication mechanism here
+app.use("/customer/auth/*", function auth(req, res, next) {
+    // Check if the authorization header is present
+    const token = req.headers['authorization'];
+
+    if (!token) {
+        return res.status(401).json({ message: "Unauthorized access, token missing" });
+    }
+
+    // Verify the token
+    jwt.verify(token, 'your_jwt_secret', (err, decoded) => {
+        if (err) {
+            return res.status(401).json({ message: "Unauthorized access, invalid token" });
+        }
+
+        // Attach the decoded token to the request for use in other routes
+        req.user = decoded;
+        next(); // User is authenticated, proceed to the next middleware or route handler
+    });
 });
  
 const PORT =5000;

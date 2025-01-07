@@ -1,12 +1,13 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
-let books = require("./booksdb.js");
+const books = require("./booksdb.js");
 const regd_users = express.Router();
 
 let users = [
-    { username: 'user1', password: 'pass1'},
-    { username: 'Arica', password: '1234!'}
+    { username: 'user1', password: 'pass1' },
+    { username: 'Arica', password: '1234!' }
 ];
+
 const reviews = {};
 
 const isValid = (username) => {
@@ -21,60 +22,70 @@ const authenticatedUser = (username, password) => {
 
 //only registered users can login
 regd_users.post("/login", (req, res) => {
-    const username = req.body.username;
-    const password = req.body.password;
+    const { username, password } = req.body;
 
-    if (!username || !password) {
-        return res.status(400).json({ message: "Error logging in" });
-    }
+    // Find the user by username
+    const user = users.find(u => u.username === username);
 
-    if (authenticatedUser(username, password)) {
-        // Generate a token
-        const token = jwt.sign({ username }, "access", { expiresIn: '1h' });
-
-        // Store the token in the session
-        req.session.authorization = { accessToken: token };
-
-        return res.status(200).json({ message: "User successfully logged in", token });
-    } else {
+    // Check if the user exists and the password matches
+    if (!user || user.password !== password) {
         return res.status(401).json({ message: "Invalid Login. Check username and password" });
     }
+
+    req.session.authorization = { username };
+
+    // Generate a JWT token
+    const token = jwt.sign({ username: user.username }, 'your_jwt_secret', { expiresIn: '60m' });
+
+    res.status(200).json({ message: "Login successful", token });
 });
 
+
 // Add a book review
-regd_users.put("/auth/review/:isbn", (req, res) => {
+regd_users.post("/auth/review/:isbn", (req, res) => {
     const isbn = req.params.isbn;
-    const reviewContent = req.body.review;
-    const username = req.session.authorization.username;
+    const reviewContent = req.body.reviews;
+    const username = req.user.username;
 
     if (!reviewContent) {
         return res.status(400).json({ message: "Review content is required" });
     }
 
-    // Assuming you have a reviews object or database
     let bookReviews = reviews[isbn] || [];
+    console.log(`Current reviews for ISBN ${isbn}:`, bookReviews);
 
-    // Check if the user has already reviewed this book
     const existingReviewIndex = bookReviews.findIndex(r => r.username === username);
 
     if (existingReviewIndex !== -1) {
-        // Modify existing review
         bookReviews[existingReviewIndex].review = reviewContent;
+        console.log(`Review updated by user ${username} for ISBN ${isbn}`);
         res.status(200).json({ message: "Review updated successfully" });
     } else {
-        res.status(404).json({ message: "Review not found for this user" });
+        bookReviews.push({ username, review: reviewContent });
+        reviews[isbn] = bookReviews;
+        console.log(`Review added by user ${username} for ISBN ${isbn}`);
+        res.status(201).json({ message: "Review added successfully" });
     }
 });
 
+
 regd_users.delete("/auth/review/:isbn", (req, res) => {
     const isbn = req.params.isbn;
-    const username = req.session.authorization.username;
+    const username = req.user.username;
 
-    if (!reviews[isbn]) {
-        return res.status(404).json({ message: "No reviews found for this ISBN" });
+    const book = books.find(book => book.isbn === isbn);
+
+    if (!book) {
+        return res.status(404).json({ message: "Book not found" });
     }
 
-    const bookReviews = reviews[isbn];
+    if (!book.reviews) {
+        return res.status(404).json({ message: "No reviews found for this isbn." });
+    }
+
+    console.log(`Current reviews for ISBN ${isbn}:`, book.reviews)
+
+    const bookReviews = Object.values(book.reviews);
     const reviewIndex = bookReviews.findIndex(r => r.username === username);
 
     if (reviewIndex === -1) {
@@ -82,7 +93,10 @@ regd_users.delete("/auth/review/:isbn", (req, res) => {
     }
 
     bookReviews.splice(reviewIndex, 1); // Remove the review
-    reviews[isbn] = bookReviews;
+    book.reviews = bookReviews.reduce((acc, review) => {
+        acc[review.username] = review;
+        return acc;
+    }, {});
 
     res.status(200).json({ message: "Review deleted successfully" });
 });
